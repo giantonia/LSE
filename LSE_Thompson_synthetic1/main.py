@@ -6,6 +6,9 @@ from tqdm import tqdm
 from utils import gen_X_set, obj_func, plot_2d, gen_observations, read_result
 from models import sample_from_GP, model_training, evaluate_lse_model
 
+import warnings
+warnings.filterwarnings('always')
+
 def batch_lse_sample_uniform(X_range, n_candidates, model, h, batch):
     X_sample, y_sample = sample_from_GP(X_range, n_candidates, model)
     lse_idx = torch.where(y_sample >= h)[0]
@@ -49,15 +52,23 @@ def exp(Xtrain, ytrain,
         plot_sampling=False):
     f1_lcb_all = np.zeros((budget + 1))
     f1_mean_all = np.zeros((budget + 1))
+    prec_lcb_all = np.zeros((budget + 1))
+    prec_mean_all = np.zeros((budget + 1))
+    rec_lcb_all = np.zeros((budget + 1))
+    rec_mean_all = np.zeros((budget + 1))
     n_dims = Xtrain.shape[1]
     # train initial GP model
     model, likelihood = model_training(Xtrain, ytrain, lr, iter)
     # optimize iteratively
     for iteration in tqdm(range(1, budget + 1)):
         # evaluate the model
-        f1_lcb, f1_mean = evaluate_lse_model(model, likelihood, Xtest, ytest, h)
+        f1_lcb, f1_mean, prec_lcb, prec_mean, rec_lcb, rec_mean = evaluate_lse_model(model, likelihood, Xtest, ytest, h)
         f1_lcb_all[iteration - 1] = f1_lcb
         f1_mean_all[iteration - 1] = f1_mean
+        prec_lcb_all[iteration - 1] = prec_lcb
+        prec_mean_all[iteration - 1] = prec_mean
+        rec_lcb_all[iteration - 1] = rec_lcb
+        rec_mean_all[iteration - 1] = rec_mean
         # sample new point
         if sample=="random":
             X_sample_point = gen_X_set(X_range, batch)
@@ -75,62 +86,72 @@ def exp(Xtrain, ytrain,
         Xtrain = torch.cat((Xtrain, X_sample_point), 0)
         ytrain = torch.cat((ytrain, y_sample_point), 0)
         model, likelihood = model_training(Xtrain, ytrain, lr, iter)
-    f1_lcb, f1_mean = evaluate_lse_model(model, likelihood, Xtest, ytest, h)
-    print("Final F1: ", sample, " LCB: ", f1_lcb, " Mean: ", f1_mean)
+    f1_lcb, f1_mean, prec_lcb, prec_mean, rec_lcb, rec_mean = evaluate_lse_model(model, likelihood, Xtest, ytest, h)
+    f1_lcb_all[-1] = f1_lcb
+    f1_mean_all[-1] = f1_mean
+    prec_lcb_all[-1] = prec_lcb
+    prec_mean_all[-1] = prec_mean
+    rec_lcb_all[-1] = rec_lcb
+    rec_mean_all[-1] = rec_mean
+    print("Result: ", sample, " LCB | Mean")
+    print("Final F1: ", f1_lcb, f1_mean)
+    print("Final Precision: ", prec_lcb, prec_mean)
+    print("Final Recall: ", rec_lcb, rec_mean)
     file_name = f"{data_name}_{sample}_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}"
     if plot_sampling:
         plot_2d(Xtrain.cpu().detach(), ytrain.cpu().detach(), h, X_range, N, budget, batch, file_name)
-    return file_name, f1_lcb_all, f1_mean_all
+    return file_name, f1_lcb_all, f1_mean_all, prec_lcb_all, prec_mean_all, rec_lcb_all, rec_mean_all
 
-def save_result(file_name, f1_lcb_all, f1_mean_all):
-    with open(f"result/lcb_{file_name}.txt", "a+") as f:
-        out = list(f1_lcb_all)
+def save_result(file_name, lcb_metric, mean_metric, metric):
+    with open(f"result/lcb_{metric}_{file_name}.txt", "a+") as f:
+        out = list(lcb_metric)
         out = [str(item) for item in out]
         out = ",".join(out) + "\n"
         f.write(out)
-    with open(f"result/mean_{file_name}.txt", "a+") as f:
-        out = list(f1_mean_all)
+    with open(f"result/mean_{metric}_{file_name}.txt", "a+") as f:
+        out = list(mean_metric)
         out = [str(item) for item in out]
         out = ",".join(out) + "\n"
         f.write(out)
 
 def plot_final_result(budget, runs, data_name, h, N, n_candidates, batch, note):
-    for pred in ["lcb", "mean"]:
-        random_result = read_result(f"result/{pred}_{data_name}_random_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
-        uniform_result = read_result(f"result/{pred}_{data_name}_uniform_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
-        nearest_result = read_result(f"result/{pred}_{data_name}_nearest_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
-        nearestpos_result = read_result(f"result/{pred}_{data_name}_nearestpos_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
-        straddle_result = read_result(f"result/{pred}_{data_name}_straddle_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
-        random_mean = np.mean(random_result, axis=0)
-        random_std = np.std(random_result, axis=0)
-        uniform_mean = np.mean(uniform_result, axis=0)
-        uniform_std = np.std(uniform_result, axis=0)
-        nearest_mean = np.mean(nearest_result, axis=0)
-        nearest_std = np.std(nearest_result)
-        nearestpos_mean = np.mean(nearestpos_result, axis=0)
-        nearestpos_std = np.std(nearestpos_result)
-        straddle_mean = np.mean(straddle_result, axis=0)
-        straddle_std = np.std(straddle_result, axis=0)
-        fig, ax = plt.subplots(figsize=(10, 10))
-        iterations = range(1, budget + 2)
-        ax.plot(iterations, random_mean, color="green", label="random")
-        ax.fill_between(iterations, random_mean - random_std, random_mean + random_std, alpha=0.3, color="green")
-        ax.plot(iterations, uniform_mean, color="red", label="uniform")
-        ax.fill_between(iterations, uniform_mean - uniform_std, uniform_mean + uniform_std, alpha=0.3, color="red")
-        ax.plot(iterations, nearest_mean, color="black", label="nearest")
-        ax.fill_between(iterations, nearest_mean - nearest_std, nearest_mean + nearest_std, alpha=0.3, color="black")
-        ax.plot(iterations, nearestpos_mean, color="orange", label="nearestpos")
-        ax.fill_between(iterations, nearestpos_mean - nearestpos_std, nearestpos_mean + nearestpos_std, alpha=0.3, color="orange")
-        ax.plot(iterations, straddle_mean, color="blue", label="straddle")
-        ax.fill_between(iterations, straddle_mean - straddle_std, straddle_mean + straddle_std, alpha=0.3, color="blue")
-        ax.legend()
-        plt.savefig(f"figures/final_{pred}_{data_name}_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.png")
-        plt.close(fig)
+    for metric in ["f1", "prec", "rec"]:
+        for pred in ["lcb", "mean"]:
+            random_result = read_result(f"result/{pred}_{metric}_{data_name}_random_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
+            uniform_result = read_result(f"result/{pred}_{metric}_{data_name}_uniform_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
+            nearest_result = read_result(f"result/{pred}_{metric}_{data_name}_nearest_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
+            nearestpos_result = read_result(f"result/{pred}_{metric}_{data_name}_nearestpos_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
+            straddle_result = read_result(f"result/{pred}_{metric}_{data_name}_straddle_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.txt", budget, runs)
+            random_mean = np.mean(random_result, axis=0)
+            random_std = np.std(random_result, axis=0)
+            uniform_mean = np.mean(uniform_result, axis=0)
+            uniform_std = np.std(uniform_result, axis=0)
+            nearest_mean = np.mean(nearest_result, axis=0)
+            nearest_std = np.std(nearest_result)
+            nearestpos_mean = np.mean(nearestpos_result, axis=0)
+            nearestpos_std = np.std(nearestpos_result)
+            straddle_mean = np.mean(straddle_result, axis=0)
+            straddle_std = np.std(straddle_result, axis=0)
+            fig, ax = plt.subplots(figsize=(10, 10))
+            iterations = range(1, budget + 2)
+            ax.plot(iterations, random_mean, color="green", label="random")
+            ax.fill_between(iterations, random_mean - random_std, random_mean + random_std, alpha=0.3, color="green")
+            ax.plot(iterations, uniform_mean, color="red", label="uniform")
+            ax.fill_between(iterations, uniform_mean - uniform_std, uniform_mean + uniform_std, alpha=0.3, color="red")
+            ax.plot(iterations, nearest_mean, color="black", label="nearest")
+            ax.fill_between(iterations, nearest_mean - nearest_std, nearest_mean + nearest_std, alpha=0.3, color="black")
+            ax.plot(iterations, nearestpos_mean, color="orange", label="nearestpos")
+            ax.fill_between(iterations, nearestpos_mean - nearestpos_std, nearestpos_mean + nearestpos_std, alpha=0.3, color="orange")
+            ax.plot(iterations, straddle_mean, color="blue", label="straddle")
+            ax.fill_between(iterations, straddle_mean - straddle_std, straddle_mean + straddle_std, alpha=0.3, color="blue")
+            ax.legend()
+            plt.savefig(f"figures/final_{pred}_{metric}_{data_name}_h{h}_N{N}_NC{n_candidates}_budget{budget}_batch{batch}_{note}.png")
+            plt.close(fig)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--N", type=int, default=100, help="number of initial data points")
-    parser.add_argument("--max_dim", type=float, default=10.0, help="maximum of dimension range")
+    parser.add_argument("--max_dim", type=float, default=5.0, help="maximum of dimension range")
     parser.add_argument("--n_dim", type=int, default=2, help="number of input dimensions")
     parser.add_argument("--test_size", type=int, default=5000, help="size of test set")
     parser.add_argument("--h", type=float, default=2.0, help="threshold")
@@ -173,8 +194,10 @@ if __name__ == "__main__":
                                 plot_sampling=plot_sampling)
             run_results[sample] = sample_result
         for result in run_results.values():
-            file_name, f1_lcb_all, f1_mean_all = result[0], result[1], result[2]
-            save_result(file_name, f1_lcb_all, f1_mean_all)
+            file_name, f1_lcb_all, f1_mean_all, prec_lcb_all, prec_mean_all, rec_lcb_all, rec_mean_all = result
+            save_result(file_name, f1_lcb_all, f1_mean_all, "f1")
+            save_result(file_name, prec_lcb_all, prec_mean_all, "prec")
+            save_result(file_name, rec_lcb_all, rec_mean_all, "rec")
     plot_final_result(args.budget, args.runs, 
                       args.data_name, args.h, 
                       args.N, args.n_candidates, 

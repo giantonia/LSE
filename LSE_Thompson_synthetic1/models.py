@@ -1,7 +1,7 @@
 import gpytorch
 import torch
 from utils import gen_X_set
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, precision_score, recall_score
 
 class ExactGPModel(gpytorch.models.ExactGP):
     def __init__(self, train_x, train_y, likelihood):
@@ -58,4 +58,8 @@ def evaluate_lse_model(model, likelihood, X, y, h):
         lse_y = y >= h
         f1_lcb = f1_score(lse_y.cpu(), lse_lcb_pred.cpu())
         f1_mean = f1_score(lse_y.cpu(), lse_mean_pred.cpu())
-        return f1_lcb, f1_mean
+        prec_lcb = precision_score(lse_y.cpu(), lse_lcb_pred.cpu(), zero_division=0)
+        prec_mean = precision_score(lse_y.cpu(), lse_mean_pred.cpu(), zero_division=0)
+        rec_lcb = recall_score(lse_y.cpu(), lse_lcb_pred.cpu())
+        rec_mean = recall_score(lse_y.cpu(), lse_mean_pred.cpu())        
+        return f1_lcb, f1_mean, prec_lcb, prec_mean, rec_lcb, rec_mean

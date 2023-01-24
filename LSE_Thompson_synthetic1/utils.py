@@ -57,7 +57,6 @@ def gen_grid():
     return X_grid, y_grid
 
 def plot_2d(X, y, h, X_range, N, budget, batch, file_name):
-    X_grid, y_grid = gen_grid()
     ncols = 10
     nrows = int(budget/ncols)
     fig, ax = plt.subplots(nrows, ncols, figsize=(10*ncols, 10*nrows))
