@@ -43,9 +43,6 @@ def model_training(X, y, lr, iter):
 def sample_from_GP(X_range, N, model):
     X_sample = gen_X_set(X_range, N)
     f_preds = model(X_sample.float())
-    f_mean = f_preds.mean
-    f_var = f_preds.variance
-    f_covar = f_preds.covariance_matrix
     y_sample = f_preds.sample(sample_shape=torch.Size((1,))).reshape(N)
     return X_sample, y_sample
 
@@ -55,8 +52,10 @@ def evaluate_lse_model(model, likelihood, X, y, h):
     with torch.no_grad():
         # Make predictions
         observed_pred = likelihood(model(X.float()))
-        lower, _ = observed_pred.confidence_region()
-        lse_pred = lower >= h
+        lower, upper = observed_pred.confidence_region()
+        lse_mean_pred = (lower + upper)/2 >= h
+        lse_lcb_pred = lower >= h
         lse_y = y >= h
-        f1 = f1_score(lse_y.cpu(), lse_pred.cpu())
-        return f1
+        f1_lcb = f1_score(lse_y.cpu(), lse_lcb_pred.cpu())
+        f1_mean = f1_score(lse_y.cpu(), lse_mean_pred.cpu())
+        return f1_lcb, f1_mean

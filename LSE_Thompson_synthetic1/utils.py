@@ -37,7 +37,7 @@ def gen_X_set(X_range, N):
     return X_out  
 
 def read_result(filename, budget, runs):
-    result = np.zeros((runs, budget))
+    result = np.zeros((runs, budget + 1))
     with open(filename, "r") as f:
         lines = f.readlines()
         lines = [line[:-2].split(",") for line in lines]
